@@ -17,34 +17,41 @@ public class BitUtils {
                 BufferedOutputStream output = new BufferedOutputStream(new FileOutputStream(dst, append))
         ) {
 
-            int b, j = 0, encoded = 0;
-            int size = input.available() - 1;
+            int bytee, encoded1, encoded2;
+            while ((bytee = input.read()) != -1) {
+                encoded1 = encoded2 = 0;
 
-            while ((b = input.read()) != -1 ) {
-                for (int i = 0; i < 8; i++, j++) {
+                // set parity bits
+                encoded1 = setNsBit(encoded1, 0, calculateParity(bytee, 0,1,3));
+                encoded1 = setNsBit(encoded1, 1, calculateParity(bytee, 0,2,3));
+                encoded1 = setNsBit(encoded1, 3, calculateParity(bytee, 1,2,3));
 
-                    encoded = (setNsBitPair(encoded, j % 3, getNsBit(b, i) ));
+                encoded2 = setNsBit(encoded2, 0, calculateParity(bytee, 4,5,7));
+                encoded2 = setNsBit(encoded2, 1, calculateParity(bytee, 4,6,7));
+                encoded2 = setNsBit(encoded2, 3, calculateParity(bytee, 5,6,7));
 
-                    // encoded is fully filled: write and reset
-                    if (j % 3 == 2) {
-                        output.write(encoded);
-                        encoded = 0;
-                    }
 
+                // write regular bits
+                encoded1 = setNsBit(encoded1, 2, getNsBit(bytee, 0));
+                encoded1 = setNsBit(encoded1, 4, getNsBit(bytee, 1 ));
+                encoded1 = setNsBit(encoded1, 5, getNsBit(bytee,2));
+                encoded1 = setNsBit(encoded1, 6, getNsBit(bytee, 3));
+
+                encoded2 = setNsBit(encoded2, 2, getNsBit(bytee, 4));
+                encoded2 = setNsBit(encoded2, 4, getNsBit(bytee, 5));
+                encoded2 = setNsBit(encoded2, 5, getNsBit(bytee, 6));
+                encoded2 = setNsBit(encoded2, 6, getNsBit(bytee, 7));
+
+                output.write(encoded1);
+                output.write(encoded2);
                 }
-
-            }
-
-            if (j % 3 != 1) {
-                encoded = setNsBitPair(encoded, 2, 0);
-                if (encoded != 0)
-                    output.write(encoded);
-            }
-
         }
 
 
+
+
     }
+
 
     public static void encodeData(File src, File dst) throws IOException {
         encodeData(src, dst, false);
@@ -56,23 +63,30 @@ public class BitUtils {
                 BufferedOutputStream output = new BufferedOutputStream(new FileOutputStream(dst, append))
         ) {
             int bytee;
-            int decodedByte = 0, dIndex = 0;
+            int decodedByte;
             while ((bytee = input.read()) != -1) {
                 bytee = fixByte(bytee);
+                decodedByte = 0;
+                decodedByte = setNsBit(decodedByte, 0, getNsBit(bytee, 2));
+                decodedByte = setNsBit(decodedByte, 1, getNsBit(bytee, 4));
+                decodedByte = setNsBit(decodedByte, 2, getNsBit(bytee, 5));
+                decodedByte = setNsBit(decodedByte, 3, getNsBit(bytee, 6));
 
-                //read obe bit from each pair except the parity pair
-                for (int i = 0; i < 5; i += 2, dIndex++) {
-                    decodedByte = setNsBit(decodedByte, dIndex % 8, getNsBit(bytee, i));
-                    if (dIndex % 8 == 7) {
-                        output.write(decodedByte);
-                        decodedByte = 0;
-                    }
-                }
+                bytee = input.read();
+                if (bytee == -1) return;
+                bytee = fixByte(bytee);
+
+
+                decodedByte = setNsBit(decodedByte, 4, getNsBit(bytee, 2));
+                decodedByte = setNsBit(decodedByte, 5, getNsBit(bytee, 4));
+                decodedByte = setNsBit(decodedByte, 6, getNsBit(bytee, 5));
+                decodedByte = setNsBit(decodedByte, 7, getNsBit(bytee, 6));
+
+                output.write(decodedByte);
+
 
             }
 
-            if (decodedByte != 0)
-                output.write(decodedByte);
 
 
 
@@ -82,129 +96,6 @@ public class BitUtils {
 
     public static void decodeData(File src, File dst) throws IOException {
         decodeData(src, dst, false);
-    }
-
-    private static int setNsBitPair(int bytee, int index, boolean state) {
-        if (index == 0) {
-            return state ?
-                    bytee | 0b11000000 :
-                    bytee & 0b00111111;
-        } else if (index == 1) {
-            return state ?
-                    bytee | 0b00110000 :
-                    bytee & 0b11001111;
-        } else if (index == 2) {
-            bytee = state ?
-                    bytee | 0b00001100 :
-                    bytee & 0b11110011;
-
-            // count the parity bit: the sum of the data bits modulo 2
-            int counter = 0;
-            if ((bytee | 0b00111111) == 0b11111111)
-                counter++;
-            if ((bytee | 0b11001111) == 0b11111111)
-                counter++;
-            if ((bytee | 0b11110011) == 0b11111111)
-                counter++;
-
-            return (counter % 2 == 0)  ? bytee : bytee | 0b00000011;
-        } else {
-            throw new IllegalArgumentException("Only first three pairs may be set (starting from 0)");
-        }
-    }
-    private static int setNsBitPair(int bytee, int index, int bit) {
-        return bit == 1 ?
-                setNsBitPair(bytee, index, true) :
-                setNsBitPair(bytee, index, false);
-    }
-
-    private static int fixByte(int bytee) {
-        int parityMask = bytee | 0b11111100;
-        int parityFlag;
-        int ordinal = 0, counter = 0;
-
-        if (parityMask == 0b11111111) {
-            parityFlag = 1;
-        } else if (parityMask == 0b11111100) {
-            parityFlag = 0;
-        } else {
-            return bytee;
-        }
-
-        int mask = bytee | 0b00111111;
-        if (mask != 0b11111111 && mask != 0b00111111) {
-            ordinal = 0;
-
-        } else if (mask == 0b11111111) {
-            counter++;
-        }
-        mask = bytee | 0b11001111;
-        if (mask != 0b11111111 && mask != 0b11001111) {
-            ordinal = 1;
-        } else if (mask == 0b11111111) {
-            counter++;
-        }
-        mask = bytee | 0b11110011;
-        if (mask != 0b11111111 && mask != 0b11110011) {
-            ordinal = 2;
-        } else if (mask == 0b11111111) {
-            counter++;
-        }
-
-        if (parityFlag == 1) {
-            switch (ordinal) {
-                case 0:
-                    return (counter % 2 == 0) ?
-                            bytee | 0b11000000 :
-                            bytee & 0b00111111 ;
-
-                case 1:
-                    return (counter % 2 == 0) ?
-                            bytee | 0b00110000 :
-                            bytee & 0b11001111 ;
-
-                default:
-                    return (counter % 2 == 0) ?
-                            bytee | 0b00001100 :
-                            bytee & 0b11110011 ;
-
-            }
-        } else {
-            switch (ordinal) {
-                case 0:
-                    return (counter % 2 == 0) ?
-                            bytee & 0b00111111 :
-                            bytee | 0b11000000 ;
-                case 1:
-                    return (counter % 2 == 0) ?
-                            bytee & 0b11001111 :
-                            bytee | 0b00110000 ;
-                default:
-                    return (counter % 2 == 0) ?
-                            bytee & 0b11110011 :
-                            bytee | 0b00001100 ;
-            }
-        }
-
-    }
-
-
-    private static int setNsBit(int bytee, int index, boolean state) {
-        return  setNsBit(bytee, index, state ? 1 : 0);
-    }
-    private static int setNsBit(int bytee, int index, int bit) {
-        if (index > 7 || index < 0) {
-            throw  new IndexOutOfBoundsException();
-        }
-        return bytee | (bit << (7 - index));
-    }
-
-    private static int getNsBit(int bytee, int index) {
-        if (index > 7 || index < 0) {
-            throw new IndexOutOfBoundsException();
-        }
-
-        return (bytee & (1 << (7 - index))) == 0 ? 0 : 1;
     }
 
     public static void printBitwiseBinary(InputStream input) throws IOException {
@@ -223,6 +114,60 @@ public class BitUtils {
         }
         System.out.println();
     }
+
+
+    private static int calculateParity(int bytee, int... indexes){
+        int sum = 0;
+        for (int i : indexes) {
+            sum += getNsBit(bytee, i);
+        }
+
+        return sum % 2 == 0 ? 0 : 1;
+    }
+
+    private static int fixByte(int bytee) {
+        boolean p1, p2, p4;
+
+        p1 = getBitsSum(bytee, 2, 4, 6) % 2 == getNsBit(bytee, 0);
+        p2 = getBitsSum(bytee, 2, 5, 6) % 2 == getNsBit(bytee, 1);
+        p4 = getBitsSum(bytee, 4, 5, 6) % 2 == getNsBit(bytee, 3);
+
+        if (p1 && p2 && p4) return bytee;
+
+        int counter = -1;
+        if (!p1) counter += 1;
+        if (!p2) counter += 2;
+        if (!p4) counter += 4;
+
+        return bytee ^ (1 << (7 - counter));
+
+    }
+
+
+    private static int getBitsSum(int bytee, int... indexes) {
+        int counter = 0;
+        for (int i : indexes) {
+            counter += getNsBit(bytee, i);
+        }
+        return counter;
+    }
+
+
+    private static int setNsBit(int bytee, int index, int bit) {
+        if (index > 7 || index < 0) {
+            throw  new IndexOutOfBoundsException();
+        }
+        return bytee | (bit << (7 - index));
+    }
+
+    private static int getNsBit(int bytee, int index) {
+        if (index > 7 || index < 0) {
+            throw new IndexOutOfBoundsException();
+        }
+
+        return (bytee & (1 << (7 - index))) == 0 ? 0 : 1;
+    }
+
     public static void main(String[] args) throws Exception {
 
         File src = new File("/home/roquentin/Documents/code/IO/test/src.txt");
@@ -238,7 +183,7 @@ public class BitUtils {
         try (BufferedInputStream inputSrc = new BufferedInputStream(new FileInputStream(src));
              BufferedInputStream inputEncoded = new BufferedInputStream(new FileInputStream(dstEncoded));
              BufferedInputStream inputReceived = new BufferedInputStream(new FileInputStream(received));
-             BufferedInputStream inputDecoded = new BufferedInputStream(new FileInputStream(dstDecoded));
+             BufferedInputStream inputDecoded = new BufferedInputStream(new FileInputStream(dstDecoded))
 
         )  {
 
